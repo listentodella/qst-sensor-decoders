@@ -1,0 +1,31 @@
+name: Test QST Sensor Decoders
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Validate extension manifest
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          manifest = json.loads(Path('extension.json').read_text())
+          assert manifest['name'] == 'QST Sensor Decoders'
+          assert set(manifest['extensions']) == {'QMI8660', 'QMI8658A', 'QMA6100P'}
+          for meta in manifest['extensions'].values():
+              assert meta['type'] == 'HighLevelAnalyzer'
+              assert meta['entryPoint'].startswith('HighLevelAnalyzer.')
+          PY
+      - name: Compile Python sources
+        run: python -m compileall -q .
+      - name: Run tests
+        run: python -m unittest discover -s tests -p 'test_*.py'
