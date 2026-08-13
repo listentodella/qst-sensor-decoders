@@ -1,0 +1,136 @@
+{
+  "sensor": "QMA6101T",
+  "source": "qma6101t.yaml (minimal)",
+  "pages": {
+    "0": {
+      "0": {
+        "name": "CHIP_ID",
+        "access": "RO",
+        "width": 1,
+        "description": "Chip identity",
+        "roles": ["identity"],
+        "fields": [
+          {
+            "name": "chip_id",
+            "bits": "7:0",
+            "description": "0x0A for QMA6101T",
+            "roles": ["identity_value"]
+          }
+        ]
+      },
+      "1": {
+        "name": "X_OUT_LSB",
+        "access": "RO",
+        "width": 1,
+        "description": "X axis acceleration low byte",
+        "roles": ["accel_data"],
+        "fields": [
+          {
+            "name": "x_lsb",
+            "bits": "7:0",
+            "description": "X LSB"
+          }
+        ]
+      },
+      "2": {
+        "name": "X_OUT_MSB",
+        "access": "RO",
+        "width": 1,
+        "description": "X axis acceleration high byte",
+        "roles": ["accel_data"],
+        "fields": [
+          {
+            "name": "x_msb",
+            "bits": "7:0",
+            "description": "X MSB"
+          }
+        ]
+      },
+      "3": {
+        "name": "Y_OUT_LSB",
+        "access": "RO",
+        "width": 1,
+        "description": "Y axis acceleration low byte",
+        "roles": ["accel_data"],
+        "fields": [
+          {
+            "name": "y_lsb",
+            "bits": "7:0",
+            "description": "Y LSB"
+          }
+        ]
+      },
+      "4": {
+        "name": "Y_OUT_MSB",
+        "access": "RO",
+        "width": 1,
+        "description": "Y axis acceleration high byte",
+        "roles": ["accel_data"],
+        "fields": [
+          {
+            "name": "y_msb",
+            "bits": "7:0",
+            "description": "Y MSB"
+          }
+        ]
+      },
+      "5": {
+        "name": "Z_OUT_LSB",
+        "access": "RO",
+        "width": 1,
+        "description": "Z axis acceleration low byte",
+        "roles": ["accel_data"],
+        "fields": [
+          {
+            "name": "z_lsb",
+            "bits": "7:0",
+            "description": "Z LSB"
+          }
+        ]
+      },
+      "6": {
+        "name": "Z_OUT_MSB",
+        "access": "RO",
+        "width": 1,
+        "description": "Z axis acceleration high byte",
+        "roles": ["accel_data"],
+        "fields": [
+          {
+            "name": "z_msb",
+            "bits": "7:0",
+            "description": "Z MSB"
+          }
+        ]
+      },
+      "15": {
+        "name": "ACC_RANGE",
+        "access": "RW",
+        "width": 1,
+        "description": "Accelerometer range register",
+        "roles": ["accel_config"],
+        "fields": [
+          {
+            "name": "range",
+            "bits": "7:0",
+            "description": "Full scale range selection",
+            "roles": []
+          }
+        ]
+      },
+      "63": {
+        "name": "FIFO_DATA",
+        "access": "RO",
+        "width": 1,
+        "description": "FIFO data register",
+        "roles": ["fifo_data"],
+        "fields": [
+          {
+            "name": "fifo_data",
+            "bits": "7:0",
+            "description": "FIFO data bytes"
+          }
+        ]
+      }
+    }
+  }
+}
