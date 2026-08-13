@@ -2,7 +2,7 @@
   "name": "QST Sensor Decoders",
   "apiVersion": "1.0.0",
   "author": "Qst",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Logic 2 High Level Analyzers for QMI8660, QMI8658A, and QMA6100P sensors over I2C and SPI.",
   "extensions": {
     "QMI8660": {

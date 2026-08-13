@@ -78,6 +78,52 @@ class HighLevelAnalyzerCompatibilityTests(unittest.TestCase):
         }
         analyzer = self.module.Qmi8660Hla.__new__(self.module.Qmi8660Hla, legacy_settings)
         self.assertEqual(analyzer.fifo_layout, "Auto")
+        self.assertEqual(analyzer.accel_unit, "g")
+        self.assertEqual(analyzer.gyro_unit, "dps")
+
+    def test_full_scale_setting_values_are_parsed(self):
+        self.assertEqual(self.module._scale_value("8 g"), 8.0)
+        self.assertEqual(self.module._scale_value("2048 dps"), 2048.0)
+        self.assertIsNone(self.module._scale_value("Auto"))
+
+    def test_hla_applies_selected_scales_and_units_to_decoder(self):
+        settings = {
+            "i2c_address": "Any",
+            "spi_gap_us": 1,
+            "accel_full_scale": "8 g",
+            "accel_unit": "m/s²",
+            "gyro_full_scale": "2048 dps",
+            "gyro_unit": "rad/s",
+            "fifo_layout": "Gyro XYZ + Accel XYZ",
+        }
+        analyzer = self.module.Qmi8660Hla.__new__(self.module.Qmi8660Hla, settings)
+        self.module.Qmi8660Hla.__init__(analyzer)
+        analyzer._apply_settings()
+        self.assertEqual(analyzer.decoder.accel_fs_override, 8.0)
+        self.assertEqual(analyzer.decoder.gyro_fs_override, 2048.0)
+        self.assertEqual(analyzer.decoder.accel_unit, "m/s²")
+        self.assertEqual(analyzer.decoder.gyro_unit, "rad/s")
+
+    def test_all_analyzers_expose_only_applicable_unit_choices(self):
+        self.assertEqual(self.module.Qmi8660Hla.accel_unit.choices, ("g", "mg", "m/s²"))
+        self.assertEqual(self.module.Qmi8660Hla.gyro_unit.choices, ("dps", "rad/s"))
+        self.assertEqual(self.module.Qmi8658aHla.accel_unit.choices, ("g", "mg", "m/s²"))
+        self.assertEqual(self.module.Qmi8658aHla.gyro_unit.choices, ("dps", "rad/s"))
+        self.assertEqual(self.module.Qma6100pHla.accel_unit.choices, ("g", "mg", "m/s²"))
+        self.assertFalse(hasattr(self.module.Qma6100pHla, "gyro_unit"))
+
+    def test_ascii_si_unit_from_saved_settings_is_migrated(self):
+        settings = {
+            "i2c_address": "Any",
+            "spi_gap_us": 1,
+            "accel_full_scale": "8 g",
+            "accel_unit": "m/s^2",
+            "gyro_full_scale": "2048 dps",
+            "gyro_unit": "dps",
+            "fifo_layout": "Auto",
+        }
+        analyzer = self.module.Qmi8660Hla.__new__(self.module.Qmi8660Hla, settings)
+        self.assertEqual(analyzer.accel_unit, "m/s²")
 
     def test_explicit_fifo_layout_is_preserved(self):
         settings = {

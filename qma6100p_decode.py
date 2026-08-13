@@ -6,6 +6,7 @@ from qst_common import (
     DecodedTransaction,
     I2cAssembler,
     SpiAssembler,
+    convert_acceleration,
     decode_register_fields,
     load_registers,
     signed_i16,
@@ -44,9 +45,13 @@ class Qma6100pDecoder:
     def __init__(self) -> None:
         self.accel_fs_seen: Optional[float] = None
         self.accel_fs_override: Optional[float] = None
+        self.accel_unit = "g"
 
     def set_scale_override(self, accel_fs_g: Optional[float]) -> None:
         self.accel_fs_override = accel_fs_g
+
+    def set_output_unit(self, accel_unit: str) -> None:
+        self.accel_unit = accel_unit
 
     def decode_spi(self, mosi: Sequence[int], miso: Sequence[int]) -> DecodedTransaction:
         mosi_bytes = [value & 0xFF for value in mosi]
@@ -164,7 +169,11 @@ class Qma6100pDecoder:
             vector = f"Araw14=[{raw[0]}, {raw[1]}, {raw[2]}]"
         else:
             lsb_per_g = 8192.0 / full_scale
-            vector = "A=[" + ", ".join(f"{axis / lsb_per_g:.4f}" for axis in raw) + "] g"
+            converted = [
+                convert_acceleration(axis / lsb_per_g, self.accel_unit) for axis in raw
+            ]
+            vector = "A=[" + ", ".join(f"{value:.4f}" for value, _ in converted)
+            vector += f"] {converted[0][1]}"
         return [summary, vector]
 
     def _observe_configuration(self, register: int, values: Sequence[int]) -> None:

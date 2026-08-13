@@ -28,6 +28,19 @@ class Qmi8658DecoderTests(unittest.TestCase):
         self.assertEqual(decoded.derived[2], "G=[512.0000, -512.0000, 256.0000] dps")
         self.assertEqual(decoded.derived[3], "byte-order=little")
 
+    def test_data_all_converts_selected_units(self):
+        decoder = Qmi8658Decoder()
+        decoder.set_scale_overrides(8, 360)
+        decoder.set_output_units("mg", "rad/s")
+        payload = [
+            0x00, 0x00,
+            0x00, 0x20, 0x00, 0xE0, 0x00, 0x10,
+            0x00, 0x40, 0x00, 0xC0, 0x00, 0x20,
+        ]
+        decoded = decoder.decode_spi([0xB3] + [0] * 14, [0] + payload)
+        self.assertEqual(decoded.derived[1], "A=[2000.0000, -2000.0000, 1000.0000] mg")
+        self.assertEqual(decoded.derived[2], "G=[3.1416, -3.1416, 1.5708] rad/s")
+
     def test_ctrl1_big_endian_data(self):
         decoder = Qmi8658Decoder()
         decoder.set_scale_overrides(8, 1024)
@@ -52,6 +65,15 @@ class Qmi8658DecoderTests(unittest.TestCase):
         decoded = decoder.decode_spi([0x97] + [0] * 12, [0] + payload)
         self.assertEqual(decoded.derived[1], "A=[2.0000, -2.0000, 1.0000] g")
         self.assertEqual(decoded.derived[2], "G=[512.0000, -512.0000, 256.0000] dps")
+
+    def test_fifo_converts_to_meters_per_second_squared(self):
+        decoder = Qmi8658Decoder()
+        decoder.set_scale_overrides(16, 2048)
+        decoder.set_output_units("m/s²", "dps")
+        decoder.decode_spi([0x08, 0x01], [0, 0])
+        payload = [0x00, 0x10, 0x00, 0xF0, 0x00, 0x08]
+        decoded = decoder.decode_spi([0x97] + [0] * 6, [0] + payload)
+        self.assertEqual(decoded.derived[1], "A=[19.6133, -19.6133, 9.8066] m/s²")
 
     def test_fifo_pointer_does_not_increment(self):
         decoder = Qmi8658Decoder()

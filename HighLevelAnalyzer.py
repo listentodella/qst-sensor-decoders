@@ -18,6 +18,11 @@ def _scale_value(setting):
         return None
 
 
+def _compatible_unit(settings, name, default):
+    value = settings.get(name, default)
+    return "m/s²" if value == "m/s^2" else value
+
+
 class Qmi8660Hla(HighLevelAnalyzer):
     i2c_address = ChoicesSetting(
         label="I2C address", choices=("0x6A or 0x6B", "0x6A", "0x6B", "Any")
@@ -28,10 +33,12 @@ class Qmi8660Hla(HighLevelAnalyzer):
     accel_full_scale = ChoicesSetting(
         label="Accelerometer full scale", choices=("Auto", "4 g", "8 g", "16 g", "32 g")
     )
+    accel_unit = ChoicesSetting(label="Accel unit", choices=("g", "mg", "m/s²"))
     gyro_full_scale = ChoicesSetting(
         label="Gyroscope full scale",
         choices=("Auto", "128 dps", "256 dps", "512 dps", "1024 dps", "2048 dps", "4096 dps"),
     )
+    gyro_unit = ChoicesSetting(label="Gyro unit", choices=("dps", "rad/s"))
     fifo_layout = ChoicesSetting(
         label="FIFO layout",
         choices=(
@@ -47,6 +54,8 @@ class Qmi8660Hla(HighLevelAnalyzer):
 
     def __new__(cls, settings, *args, **kwargs):
         compatible = dict(settings)
+        compatible["accel_unit"] = _compatible_unit(compatible, "accel_unit", "g")
+        compatible.setdefault("gyro_unit", "dps")
         compatible.setdefault("fifo_layout", "Auto")
         return super().__new__(cls, compatible, *args, **kwargs)
 
@@ -80,6 +89,7 @@ class Qmi8660Hla(HighLevelAnalyzer):
         self.i2c.set_address_mode(str(self.i2c_address))
         self.spi.gap_us = float(self.spi_gap_us)
         self.decoder.set_scale_overrides(_scale_value(self.accel_full_scale), _scale_value(self.gyro_full_scale))
+        self.decoder.set_output_units(str(self.accel_unit), str(self.gyro_unit))
         self.decoder.set_fifo_layout_override(str(self.fifo_layout))
 
 
@@ -93,10 +103,12 @@ class Qmi8658aHla(HighLevelAnalyzer):
     accel_full_scale = ChoicesSetting(
         label="Accelerometer full scale", choices=("Auto", "2 g", "4 g", "8 g", "16 g")
     )
+    accel_unit = ChoicesSetting(label="Accel unit", choices=("g", "mg", "m/s²"))
     gyro_full_scale = ChoicesSetting(
         label="Gyroscope full scale",
         choices=("Auto", "16 dps", "32 dps", "64 dps", "128 dps", "256 dps", "512 dps", "1024 dps", "2048 dps"),
     )
+    gyro_unit = ChoicesSetting(label="Gyro unit", choices=("dps", "rad/s"))
     data_byte_order = ChoicesSetting(label="Sensor data byte order", choices=("Auto", "Little endian", "Big endian"))
     fifo_layout = ChoicesSetting(label="FIFO layout", choices=("Auto", "Accel XYZ + Gyro XYZ", "Accel XYZ", "Gyro XYZ"))
     result_types = {
@@ -107,6 +119,8 @@ class Qmi8658aHla(HighLevelAnalyzer):
 
     def __new__(cls, settings, *args, **kwargs):
         compatible = dict(settings)
+        compatible["accel_unit"] = _compatible_unit(compatible, "accel_unit", "g")
+        compatible.setdefault("gyro_unit", "dps")
         compatible.setdefault("data_byte_order", "Auto")
         compatible.setdefault("fifo_layout", "Auto")
         return super().__new__(cls, compatible, *args, **kwargs)
@@ -141,6 +155,7 @@ class Qmi8658aHla(HighLevelAnalyzer):
         self.i2c.set_address_mode(str(self.i2c_address))
         self.spi.gap_us = float(self.spi_gap_us)
         self.decoder.set_scale_overrides(_scale_value(self.accel_full_scale), _scale_value(self.gyro_full_scale))
+        self.decoder.set_output_units(str(self.accel_unit), str(self.gyro_unit))
         self.decoder.set_byte_order_override(str(self.data_byte_order))
         self.decoder.set_fifo_layout_override(str(self.fifo_layout))
 
@@ -149,11 +164,17 @@ class Qma6100pHla(HighLevelAnalyzer):
     i2c_address = ChoicesSetting(label="I2C address", choices=("0x12 or 0x13", "0x12", "0x13", "Any"))
     spi_gap_us = NumberSetting(label="SPI transaction gap without Enable (us)", min_value=1, max_value=1_000_000)
     accel_full_scale = ChoicesSetting(label="Accelerometer full scale", choices=("Auto", "2 g", "4 g", "8 g", "16 g", "32 g"))
+    accel_unit = ChoicesSetting(label="Accel unit", choices=("g", "mg", "m/s²"))
     result_types = {
         "qma6100p": {"format": "{{data.Bus}}{{data.Address}} {{data.Op}} {{data.Register}} {{data.Hex}} {{data.Detail}} {{data.Status}}"},
         "qma6100p_fifo": {"format": "{{data.Bus}} FIFO {{data.Detail}}"},
         "qma6100p_accel": {"format": "{{data.Bus}} ACC {{data.Detail}}"},
     }
+
+    def __new__(cls, settings, *args, **kwargs):
+        compatible = dict(settings)
+        compatible["accel_unit"] = _compatible_unit(compatible, "accel_unit", "g")
+        return super().__new__(cls, compatible, *args, **kwargs)
 
     def __init__(self):
         self.decoder = Qma6100pDecoder()
@@ -185,3 +206,4 @@ class Qma6100pHla(HighLevelAnalyzer):
         self.i2c.set_address_mode(str(self.i2c_address))
         self.spi.gap_us = float(self.spi_gap_us)
         self.decoder.set_scale_override(_scale_value(self.accel_full_scale))
+        self.decoder.set_output_unit(str(self.accel_unit))

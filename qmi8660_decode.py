@@ -6,6 +6,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
+from qst_common import convert_acceleration, convert_angular_velocity
+
 
 UI_PAGE = 0x0000
 OIS_PAGE = 0x00FF
@@ -116,6 +118,8 @@ class Qmi8660Decoder:
         self.gyro_fs_seen: Optional[float] = None
         self.accel_fs_override: Optional[float] = None
         self.gyro_fs_override: Optional[float] = None
+        self.accel_unit = "g"
+        self.gyro_unit = "dps"
         self.fifo_axes: List[str] = []
         self.fifo_temperature = False
         self.fifo_layout_override: Optional[Tuple[List[str], bool]] = None
@@ -125,6 +129,10 @@ class Qmi8660Decoder:
     ) -> None:
         self.accel_fs_override = accel_fs_g
         self.gyro_fs_override = gyro_fs_dps
+
+    def set_output_units(self, accel_unit: str, gyro_unit: str) -> None:
+        self.accel_unit = accel_unit
+        self.gyro_unit = gyro_unit
 
     def set_fifo_layout_override(self, layout: Optional[str]) -> None:
         layouts = {
@@ -348,11 +356,11 @@ class Qmi8660Decoder:
         )
         return [gyro, accel, f"temp={raw['temp']} ({raw['temp'] / 256.0:.3f} C raw scale)"]
 
-    @staticmethod
-    def _scaled_axis(name: str, raw: int, full_scale: Optional[float], unit: str) -> str:
+    def _scaled_axis(self, name: str, raw: int, full_scale: Optional[float], unit: str) -> str:
         if full_scale is None:
             return f"{name}={raw}"
-        return f"{name}={raw} ({raw * full_scale / 32768.0:.4f} {unit})"
+        value, output_unit = self._convert_physical(raw * full_scale / 32768.0, unit)
+        return f"{name}={raw} ({value:.4f} {output_unit})"
 
     def _decode_fifo(self, values: Sequence[int]) -> List[str]:
         fields, layout_source = self._fifo_fields(values)
@@ -413,8 +421,8 @@ class Qmi8660Decoder:
             return ["gx", "gy", "gz", "ax", "ay", "az"], "inferred 6-axis"
         return [], "unknown"
 
-    @staticmethod
     def _physical_vector(
+        self,
         label: str,
         raw_values: Sequence[int],
         full_scale: Optional[float],
@@ -424,10 +432,17 @@ class Qmi8660Decoder:
         if full_scale is None:
             raw = ", ".join(str(value) for value in raw_values)
             return f"{label}_raw=[{raw}] (set {setting_name} full scale)"
-        physical = ", ".join(
-            f"{value * full_scale / 32768.0:.4f}" for value in raw_values
-        )
-        return f"{label}=[{physical}] {unit}"
+        converted = [
+            self._convert_physical(value * full_scale / 32768.0, unit)
+            for value in raw_values
+        ]
+        physical = ", ".join(f"{value:.4f}" for value, _ in converted)
+        return f"{label}=[{physical}] {converted[0][1]}"
+
+    def _convert_physical(self, value: float, unit: str) -> Tuple[float, str]:
+        if unit == "g":
+            return convert_acceleration(value, self.accel_unit)
+        return convert_angular_velocity(value, self.gyro_unit)
 
     def _observe_configuration(self, page: int, register: int, values: Sequence[int]) -> None:
         if page != UI_PAGE:

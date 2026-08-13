@@ -1,10 +1,28 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
+
+
+STANDARD_GRAVITY_M_S2 = 9.80665
+
+
+def convert_acceleration(value_g: float, unit: str) -> Tuple[float, str]:
+    if unit == "mg":
+        return value_g * 1000.0, "mg"
+    if unit in ("m/s^2", "m/s²"):
+        return value_g * STANDARD_GRAVITY_M_S2, "m/s²"
+    return value_g, "g"
+
+
+def convert_angular_velocity(value_dps: float, unit: str) -> Tuple[float, str]:
+    if unit in ("rad/s", "rps"):
+        return value_dps * math.pi / 180.0, "rad/s"
+    return value_dps, "dps"
 
 
 def load_registers(filename: str) -> Dict[int, Dict[str, Any]]:

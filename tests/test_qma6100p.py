@@ -34,6 +34,16 @@ class Qma6100pDecoderTests(unittest.TestCase):
         )
         self.assertEqual(decoded.derived[1], "A=[1.0000, -1.0000, 0.5000] g")
 
+    def test_acceleration_unit_conversion(self):
+        decoder = Qma6100pDecoder()
+        decoder.set_scale_override(32)
+        decoder.set_output_unit("m/s²")
+        decoded = decoder.decode_spi(
+            [0x81] + [0] * 6,
+            [0, 0x00, 0x04, 0x00, 0xFC, 0x00, 0x02],
+        )
+        self.assertEqual(decoded.derived[1], "A=[9.8066, -9.8066, 4.9033] m/s²")
+
     def test_fifo_decodes_six_byte_frames(self):
         decoder = Qma6100pDecoder()
         decoder.set_scale_override(2)
@@ -41,6 +51,14 @@ class Qma6100pDecoderTests(unittest.TestCase):
         decoded = decoder.decode_spi([0xBF] + [0] * 12, [0] + payload)
         self.assertEqual(decoded.derived[0], "FIFO 2 XYZ sample(s)")
         self.assertEqual(decoded.derived[1], "A=[1.0000, -1.0000, 0.5000] g")
+
+    def test_fifo_converts_acceleration_to_mg(self):
+        decoder = Qma6100pDecoder()
+        decoder.set_scale_override(2)
+        decoder.set_output_unit("mg")
+        payload = [0x00, 0x40, 0x00, 0xC0, 0x00, 0x20]
+        decoded = decoder.decode_spi([0xBF] + [0] * 6, [0] + payload)
+        self.assertEqual(decoded.derived[1], "A=[1000.0000, -1000.0000, 500.0000] mg")
 
     def test_fifo_pointer_does_not_increment(self):
         decoder = Qma6100pDecoder()

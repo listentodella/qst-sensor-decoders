@@ -11,6 +11,11 @@ Each analyzer accepts frames from Logic 2's built-in I2C or SPI analyzer and
 decodes register transactions, status fields, FIFO payloads, and physical
 acceleration/gyro values where the selected device provides them.
 
+Acceleration output can be displayed in `g`, `mg`, or `m/s²`. Gyroscope
+output can be displayed in `dps` or `rad/s`. The SI conversions use standard
+gravity (`1 g = 9.80665 m/s²`) and `1 dps = pi / 180 rad/s`. Unit selection
+applies to both normal sensor-data registers and FIFO samples.
+
 ## Installation
 
 Install this folder as a Logic 2 extension using the Extensions panel. After

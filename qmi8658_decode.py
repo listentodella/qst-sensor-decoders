@@ -7,6 +7,8 @@ from qst_common import (
     DecodedTransaction,
     I2cAssembler,
     SpiAssembler,
+    convert_acceleration,
+    convert_angular_velocity,
     decode_register_fields,
     field_bounds,
     load_registers,
@@ -35,6 +37,8 @@ class Qmi8658Decoder:
         self.gyro_fs_seen: Optional[float] = None
         self.accel_fs_override: Optional[float] = None
         self.gyro_fs_override: Optional[float] = None
+        self.accel_unit = "g"
+        self.gyro_unit = "dps"
         self.big_endian_seen: Optional[bool] = None
         self.byte_order_override: Optional[str] = None
         self.accel_enabled: Optional[bool] = None
@@ -46,6 +50,10 @@ class Qmi8658Decoder:
     ) -> None:
         self.accel_fs_override = accel_fs_g
         self.gyro_fs_override = gyro_fs_dps
+
+    def set_output_units(self, accel_unit: str, gyro_unit: str) -> None:
+        self.accel_unit = accel_unit
+        self.gyro_unit = gyro_unit
 
     def set_byte_order_override(self, setting: str) -> None:
         if setting == "Little endian":
@@ -298,8 +306,8 @@ class Qmi8658Decoder:
             return self.byte_order_override
         return "big" if self.big_endian_seen else "little"
 
-    @staticmethod
     def _scaled_vector(
+        self,
         label: str,
         raw: Dict[str, int],
         axes: Sequence[str],
@@ -309,8 +317,18 @@ class Qmi8658Decoder:
         if full_scale is None:
             values = ", ".join(str(raw[axis]) for axis in axes)
             return f"{label}raw=[{values}]"
-        values = ", ".join(f"{raw[axis] * full_scale / 32768.0:.4f}" for axis in axes)
-        return f"{label}=[{values}] {unit}"
+        if unit == "g":
+            converted = [
+                convert_acceleration(raw[axis] * full_scale / 32768.0, self.accel_unit)
+                for axis in axes
+            ]
+        else:
+            converted = [
+                convert_angular_velocity(raw[axis] * full_scale / 32768.0, self.gyro_unit)
+                for axis in axes
+            ]
+        values = ", ".join(f"{value:.4f}" for value, _ in converted)
+        return f"{label}=[{values}] {converted[0][1]}"
 
     def _observe_configuration(self, register: int, values: Sequence[int]) -> None:
         for offset, value in enumerate(values):

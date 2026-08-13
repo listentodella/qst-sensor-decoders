@@ -27,6 +27,19 @@ class Qmi8660DecoderTests(unittest.TestCase):
         self.assertIn("4.0000 g", decoded.derived[1])
         self.assertIn("1.000 C", decoded.derived[2])
 
+    def test_data_all_converts_to_si_units(self):
+        decoder = Qmi8660Decoder()
+        decoder.set_scale_overrides(16, 360)
+        decoder.set_output_units("m/s²", "rad/s")
+        payload = [
+            0x00, 0x40, 0x00, 0xC0, 0x00, 0x20,
+            0x00, 0x10, 0x00, 0xF0, 0x00, 0x08,
+            0x00, 0x00,
+        ]
+        decoded = decoder.decode_spi([0xE0] + [0] * 14, [0] + payload)
+        self.assertIn("3.1416 rad/s", decoded.derived[0])
+        self.assertIn("19.6133 m/s²", decoded.derived[1])
+
     def test_page_switch_selects_ois_register_map(self):
         decoder = Qmi8660Decoder()
         page = decoder.decode_spi([0x7E, 0xFF, 0x00], [0, 0, 0])
@@ -78,6 +91,18 @@ class Qmi8660DecoderTests(unittest.TestCase):
         self.assertEqual(decoded.derived[1], "G=[2048.0000, -2048.0000, 1024.0000] dps")
         self.assertEqual(decoded.derived[2], "A=[2.0000, -2.0000, 1.0000] g")
         self.assertEqual(decoded.derived[3], "T=30.000 C")
+
+    def test_fifo_converts_acceleration_to_mg(self):
+        decoder = Qmi8660Decoder()
+        decoder.set_scale_overrides(16, 4096)
+        decoder.set_output_units("mg", "dps")
+        payload = [
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x10, 0x00, 0xF0, 0x00, 0x08,
+            0x00, 0x00,
+        ]
+        decoded = decoder.decode_spi([0xD7] + [0] * 14, [0] + payload)
+        self.assertEqual(decoded.derived[2], "A=[2000.0000, -2000.0000, 1000.0000] mg")
 
     def test_configuration_readback_is_enough_to_decode_fifo(self):
         decoder = Qmi8660Decoder()
