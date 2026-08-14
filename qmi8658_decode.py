@@ -13,6 +13,7 @@ from qst_common import (
     field_bounds,
     load_registers,
     signed_i16,
+    subscript_number,
 )
 
 
@@ -23,8 +24,25 @@ CTRL3 = 0x04
 CTRL7 = 0x08
 FIFO_COUNT = 0x15
 FIFO_DATA = 0x17
-DATA_ALL = 0x33
+TEMP_L = 0x33
+AX_L = 0x35
+AY_L = 0x37
+AZ_L = 0x39
+GX_L = 0x3B
+GY_L = 0x3D
+GZ_L = 0x3F
+SENSOR_DATA_END = 0x40
 RESET = 0x60
+
+SENSOR_VALUES = (
+    (TEMP_L, "temp", "temperature"),
+    (AX_L, "ax", "accel"),
+    (AY_L, "ay", "accel"),
+    (AZ_L, "az", "accel"),
+    (GX_L, "gx", "gyro"),
+    (GY_L, "gy", "gyro"),
+    (GZ_L, "gz", "gyro"),
+)
 
 REGISTERS = load_registers("qmi8658_registers.json")
 
@@ -128,9 +146,11 @@ class Qmi8658Decoder:
         values = [value & 0xFF for value in data]
         definition = REGISTERS.get(register, {})
         register_name = definition.get("name", f"REG_0x{register:02X}")
-        if register == DATA_ALL and len(values) > 1:
+        sensor_data_read = operation == "READ" and self.is_sensor_data_register(register)
+        sensor_data = self._decode_sensor_data(register, values) if sensor_data_read else []
+        if register == TEMP_L and len(values) >= 14:
             register_name = "DATA_ALL"
-        status = "OK" if definition else "Register is not present in the QMI8658A map"
+        status = "OK" if definition else "Register is not present in the QMI8658 map"
         access = definition.get("access", "")
         if operation == "WRITE" and access == "RO":
             status = "Write to read-only register"
@@ -146,12 +166,12 @@ class Qmi8658Decoder:
             device_address=device_address,
             status=status,
         )
-        if register not in (DATA_ALL, FIFO_DATA):
+        if register != FIFO_DATA and not sensor_data_read:
             if self.is_event_status_register(register):
                 transaction.fields = self._decode_event_status(register, values)
             else:
                 transaction.fields = decode_register_fields(REGISTERS, register, values)
-        transaction.derived = self._derive_values(register, operation, values)
+        transaction.derived = sensor_data or self._derive_values(register, operation, values)
         if operation in ("READ", "WRITE"):
             self._observe_configuration(register, values)
         return transaction
@@ -167,6 +187,10 @@ class Qmi8658Decoder:
             roles
             & {"interrupt_status", "data_ready_status", "activity_status", "tap_status"}
         )
+
+    @staticmethod
+    def is_sensor_data_register(register: int) -> bool:
+        return TEMP_L <= register <= SENSOR_DATA_END
 
     def _decode_event_status(self, register: int, values: Sequence[int]) -> List[str]:
         active: List[str] = []
@@ -193,12 +217,10 @@ class Qmi8658Decoder:
     ) -> List[str]:
         if register == WHO_AM_I and operation == "READ" and values:
             if values[0] == 0x05:
-                return ["WHO_AM_I matched QMI8658A (0x05)"]
+                return ["WHO_AM_I matched QMI8658 (0x05)"]
             return [f"Unexpected WHO_AM_I 0x{values[0]:02X}, expected 0x05"]
         if register == RESET and operation == "WRITE" and values:
             return ["Soft reset command" if values[0] == 0xB0 else "Unknown reset value"]
-        if register == DATA_ALL and operation == "READ":
-            return self._decode_data_all(values)
         if register == FIFO_DATA and operation == "READ":
             return self._decode_fifo(values)
         if register == FIFO_COUNT and operation == "READ" and len(values) >= 2:
@@ -220,69 +242,81 @@ class Qmi8658Decoder:
             return [f"Timestamp={timestamp} ticks"]
         return []
 
-    def _decode_data_all(self, values: Sequence[int]) -> List[str]:
-        if len(values) < 14:
-            return [f"DATA_ALL partial block ({len(values)}/14 bytes)"]
+    def _decode_sensor_data(self, register: int, values: Sequence[int]) -> List[str]:
+        if not values or register > SENSOR_DATA_END or register + len(values) <= TEMP_L:
+            return []
         order = self._byte_order()
-        raw = {
-            "temp": signed_i16(values, 0, order),
-            "ax": signed_i16(values, 2, order),
-            "ay": signed_i16(values, 4, order),
-            "az": signed_i16(values, 6, order),
-            "gx": signed_i16(values, 8, order),
-            "gy": signed_i16(values, 10, order),
-            "gz": signed_i16(values, 12, order),
-        }
+        raw: Dict[str, int] = {}
+        kinds: Dict[str, str] = {}
+        for address, name, kind in SENSOR_VALUES:
+            offset = address - register
+            if offset < 0 or offset + 1 >= len(values):
+                continue
+            raw[name] = signed_i16(values, offset, order)
+            kinds[name] = kind
+        if not raw:
+            return []
+
         accel_fs = self.accel_fs_override or self.accel_fs_seen
         gyro_fs = self.gyro_fs_override or self.gyro_fs_seen
-        return [
-            f"T={raw['temp'] / 256.0:.3f} C",
-            self._scaled_vector("A", raw, ("ax", "ay", "az"), accel_fs, "g"),
-            self._scaled_vector("G", raw, ("gx", "gy", "gz"), gyro_fs, "dps"),
-            f"byte-order={order}",
-        ]
+        decoded: List[str] = []
+        if "temp" in raw:
+            decoded.append(f"T={raw['temp'] / 256.0:.3f} C")
+        accel = [name for name in ("ax", "ay", "az") if kinds.get(name) == "accel"]
+        gyro = [name for name in ("gx", "gy", "gz") if kinds.get(name) == "gyro"]
+        if accel == ["ax", "ay", "az"]:
+            decoded.append(
+                self._scaled_vector("A", raw, accel, accel_fs, "g")
+            )
+        if gyro == ["gx", "gy", "gz"]:
+            decoded.append(
+                self._scaled_vector("G", raw, gyro, gyro_fs, "dps")
+            )
+        return decoded
 
     def _decode_fifo(self, values: Sequence[int]) -> List[str]:
-        layout, source = self._fifo_layout(values)
+        layout, _source = self._fifo_layout(values)
         if not layout:
             if not values:
-                return ["FIFO is empty"]
-            return [
-                f"FIFO {len(values)} byte(s), layout unknown; select FIFO layout or capture CTRL7"
-            ]
+                return ["0 B, F=0"]
+            return [f"{len(values)} B, F=?"]
         frame_size = 6 * len(layout)
         complete = len(values) // frame_size
         remainder = len(values) % frame_size
-        summary = f"FIFO {complete} frame(s), layout {source}: " + "+".join(layout)
+        summary = f"{len(values)} B, F={complete}, {frame_size} B/F"
         if remainder:
-            summary += f", trailing {remainder} byte(s)"
-        result = [summary]
+            summary += f", tail={remainder} B"
         if not complete:
-            return result
+            return [summary]
         order = self._byte_order()
-        offset = 0
-        for sensor in layout:
-            raw = {
-                f"{sensor[0]}x": signed_i16(values, offset, order),
-                f"{sensor[0]}y": signed_i16(values, offset + 2, order),
-                f"{sensor[0]}z": signed_i16(values, offset + 4, order),
-            }
-            if sensor == "accel":
-                result.append(
-                    self._scaled_vector(
-                        "A", raw, ("ax", "ay", "az"),
-                        self.accel_fs_override or self.accel_fs_seen, "g"
+        samples: List[str] = []
+        for frame_index in range(complete):
+            offset = frame_index * frame_size
+            frame_values: List[str] = []
+            index = subscript_number(frame_index + 1)
+            for sensor in layout:
+                raw = {
+                    f"{sensor[0]}x": signed_i16(values, offset, order),
+                    f"{sensor[0]}y": signed_i16(values, offset + 2, order),
+                    f"{sensor[0]}z": signed_i16(values, offset + 4, order),
+                }
+                if sensor == "accel":
+                    frame_values.append(
+                        self._scaled_vector(
+                            f"A{index}", raw, ("ax", "ay", "az"),
+                            self.accel_fs_override or self.accel_fs_seen, "g"
+                        )
                     )
-                )
-            else:
-                result.append(
-                    self._scaled_vector(
-                        "G", raw, ("gx", "gy", "gz"),
-                        self.gyro_fs_override or self.gyro_fs_seen, "dps"
+                else:
+                    frame_values.append(
+                        self._scaled_vector(
+                            f"G{index}", raw, ("gx", "gy", "gz"),
+                            self.gyro_fs_override or self.gyro_fs_seen, "dps"
+                        )
                     )
-                )
-            offset += 6
-        return result
+                offset += 6
+            samples.append(", ".join(frame_values))
+        return [summary, ";".join(samples)]
 
     def _fifo_layout(self, values: Sequence[int]) -> Tuple[Tuple[str, ...], str]:
         if self.fifo_layout_override:
@@ -297,8 +331,6 @@ class Qmi8658Decoder:
         )
         if observed:
             return observed, "observed CTRL7"
-        if values and len(values) % 12 == 0:
-            return ("accel", "gyro"), "inferred 6-axis"
         return (), "unknown"
 
     def _byte_order(self) -> str:
@@ -315,8 +347,8 @@ class Qmi8658Decoder:
         unit: str,
     ) -> str:
         if full_scale is None:
-            values = ", ".join(str(raw[axis]) for axis in axes)
-            return f"{label}raw=[{values}]"
+            sensor = "accelerometer" if unit == "g" else "gyroscope"
+            return f"{label}: set {sensor} full scale"
         if unit == "g":
             converted = [
                 convert_acceleration(raw[axis] * full_scale / 32768.0, self.accel_unit)

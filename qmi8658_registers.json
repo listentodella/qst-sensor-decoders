@@ -1,5 +1,5 @@
 {
-  "sensor": "QMI8658A",
+  "sensor": "QMI8658",
   "source": "qmi8658.yaml",
   "pages": {
     "0": {
@@ -15,7 +15,7 @@
           {
             "name": "who_am_i",
             "bits": "7:0",
-            "description": "芯片身份识别值\n0x05 = QMI8658A/QST 传感器标识",
+            "description": "芯片身份识别值\n0x05 = QMI8658/QST 传感器标识",
             "roles": [
 
             ],

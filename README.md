@@ -1,20 +1,39 @@
 # QST Sensor Decoders
 
 Saleae Logic 2 High Level Analyzer extensions for QST motion sensors. The
-package exposes three independent analyzers in the Logic 2 analyzer menu:
+package exposes four independent analyzers in the Logic 2 analyzer menu:
 
 - `QMI8660`
-- `QMI8658A`
+- `QMI8658`
 - `QMA6100P`
+- `QMA6101T`
 
 Each analyzer accepts frames from Logic 2's built-in I2C or SPI analyzer and
 decodes register transactions, status fields, FIFO payloads, and physical
-acceleration/gyro values where the selected device provides them.
+acceleration values where the selected device provides them.
 
 Acceleration output can be displayed in `g`, `mg`, or `m/s²`. Gyroscope
 output can be displayed in `dps` or `rad/s`. The SI conversions use standard
 gravity (`1 g = 9.80665 m/s²`) and `1 dps = pi / 180 rad/s`. Unit selection
 applies to both normal sensor-data registers and FIFO samples.
+
+Sensor-data bubbles identify their source with compact labels: `DATA` for
+normal output registers and `FIFO` for FIFO payloads. For example, they render
+as `SPI DATA A=[...]` and `SPI FIFO 12 B, F=1, 12 B/F; A₁=[...], G₁=[...]`.
+QMA6100P uses the same labels for its acceleration and FIFO reads.
+
+QMI8658 sensor-data reads are converted whether the transaction starts at the
+temperature block, the accelerometer block, or the gyroscope block. Normal
+register and FIFO reads both use compact physical vectors such as
+`A=[x, y, z] g` and `G=[x, y, z] dps`; raw integers are kept out of sensor-data
+bubbles. A physical vector is emitted only when a complete XYZ sample is
+present, so individual-axis reads do not consume high-level bubble space.
+QMI8658 and QMI8660 FIFO bubbles use compact statistics such as
+`24 B, F=2, 12 B/F`, followed by every decoded frame with subscripted labels:
+`A₁=[...],G₁=[...];A₂=[...],G₂=[...]`. Auto mode uses captured sensor-enable
+configuration. Without it, payload length alone cannot distinguish one
+multi-sensor frame from multiple single-sensor frames, so the decoder reports
+`F=?` rather than guessing.
 
 ## Installation
 

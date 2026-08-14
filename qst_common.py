@@ -9,6 +9,11 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 
 STANDARD_GRAVITY_M_S2 = 9.80665
+SUBSCRIPT_DIGITS = str.maketrans("0123456789", "₀₁₂₃₄₅₆₇₈₉")
+
+
+def subscript_number(value: int) -> str:
+    return str(value).translate(SUBSCRIPT_DIGITS)
 
 
 def convert_acceleration(value_g: float, unit: str) -> Tuple[float, str]:

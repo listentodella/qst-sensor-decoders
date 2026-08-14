@@ -66,19 +66,21 @@ class Qmi8660DecoderTests(unittest.TestCase):
         self.assertEqual(decoded.fields[0], "TRIGGERED: none")
         self.assertIn("inactive: orient", decoded.fields[1])
 
-    def test_fifo_configuration_decodes_first_frame(self):
+    def test_fifo_configuration_decodes_single_frame_with_statistics(self):
         decoder = Qmi8660Decoder()
         decoder.set_scale_overrides(16, 4096)
         decoder.decode_spi([0x52, 0xFC], [0, 0])
         decoder.decode_spi([0x53, 0x48], [0, 0])
         payload = [0x01, 0] * 7
         decoded = decoder.decode_spi([0xD7] + [0] * len(payload), [0] + payload)
-        self.assertIn("1 frame", decoded.derived[0])
-        self.assertEqual(decoded.derived[1], "G=[0.1250, 0.1250, 0.1250] dps")
-        self.assertEqual(decoded.derived[2], "A=[0.0005, 0.0005, 0.0005] g")
-        self.assertEqual(decoded.derived[3], "T=0.004 C")
+        self.assertEqual(decoded.derived[0], "14 B, F=1, 14 B/F")
+        self.assertEqual(
+            decoded.derived[1],
+            "A₁=[0.0005, 0.0005, 0.0005] g, "
+            "G₁=[0.1250, 0.1250, 0.1250] dps, T₁=0.004 C",
+        )
 
-    def test_fifo_infers_common_14_byte_layout_without_configuration(self):
+    def test_fifo_does_not_guess_layout_without_configuration(self):
         decoder = Qmi8660Decoder()
         decoder.set_scale_overrides(16, 4096)
         payload = [
@@ -87,22 +89,20 @@ class Qmi8660DecoderTests(unittest.TestCase):
             0x00, 0x1E,
         ]
         decoded = decoder.decode_spi([0xD7] + [0] * 14, [0] + payload)
-        self.assertIn("inferred 6-axis+temp", decoded.derived[0])
-        self.assertEqual(decoded.derived[1], "G=[2048.0000, -2048.0000, 1024.0000] dps")
-        self.assertEqual(decoded.derived[2], "A=[2.0000, -2.0000, 1.0000] g")
-        self.assertEqual(decoded.derived[3], "T=30.000 C")
+        self.assertEqual(decoded.derived, ["14 B, F=?"])
 
     def test_fifo_converts_acceleration_to_mg(self):
         decoder = Qmi8660Decoder()
         decoder.set_scale_overrides(16, 4096)
         decoder.set_output_units("mg", "dps")
+        decoder.set_fifo_layout_override("Gyro XYZ + Accel XYZ + Temp")
         payload = [
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             0x00, 0x10, 0x00, 0xF0, 0x00, 0x08,
             0x00, 0x00,
         ]
         decoded = decoder.decode_spi([0xD7] + [0] * 14, [0] + payload)
-        self.assertEqual(decoded.derived[2], "A=[2000.0000, -2000.0000, 1000.0000] mg")
+        self.assertIn("A₁=[2000.0000, -2000.0000, 1000.0000] mg", decoded.derived[1])
 
     def test_configuration_readback_is_enough_to_decode_fifo(self):
         decoder = Qmi8660Decoder()
@@ -111,17 +111,18 @@ class Qmi8660DecoderTests(unittest.TestCase):
         decoder.decode_spi([0xD2, 0], [0, 0xFC])
         decoder.decode_spi([0xD3, 0], [0, 0x48])
         decoded = decoder.decode_spi([0xD7] + [0] * 14, [0] + [0x00, 0x40] * 7)
-        self.assertIn("layout observed", decoded.derived[0])
+        self.assertEqual(decoded.derived[0], "14 B, F=1, 14 B/F")
         self.assertIn("1024.0000", decoded.derived[1])
-        self.assertIn("4.0000", decoded.derived[2])
+        self.assertIn("4.0000", decoded.derived[1])
 
     def test_manual_fifo_layout_resolves_ambiguous_payload_size(self):
         decoder = Qmi8660Decoder()
         decoder.set_scale_overrides(8, 2048)
         decoder.set_fifo_layout_override("Gyro XYZ + Accel XYZ")
         decoded = decoder.decode_spi([0xD7] + [0] * 84, [0] + [0] * 84)
-        self.assertIn("7 frame(s)", decoded.derived[0])
-        self.assertIn("layout manual", decoded.derived[0])
+        self.assertEqual(decoded.derived[0], "84 B, F=7, 12 B/F")
+        self.assertIn("A₇=[0.0000, 0.0000, 0.0000] g", decoded.derived[1])
+        self.assertIn("G₇=[0.0000, 0.0000, 0.0000] dps", decoded.derived[1])
 
     def test_rseq_fifo_capture_sample_has_physical_units(self):
         decoder = Qmi8660Decoder()
@@ -133,9 +134,27 @@ class Qmi8660DecoderTests(unittest.TestCase):
             0xDE, 0x1D,
         ]
         decoded = decoder.decode_spi([0xD7] + [0] * 14, [0] + payload)
-        self.assertEqual(decoded.derived[1], "G=[-3.8750, -0.3750, 1.0000] dps")
-        self.assertEqual(decoded.derived[2], "A=[0.0317, 0.0093, 1.0181] g")
-        self.assertEqual(decoded.derived[3], "T=29.867 C")
+        self.assertEqual(decoded.derived[0], "14 B, F=1, 14 B/F")
+        self.assertEqual(
+            decoded.derived[1],
+            "A₁=[0.0317, 0.0093, 1.0181] g, "
+            "G₁=[-3.8750, -0.3750, 1.0000] dps, T₁=29.867 C",
+        )
+
+    def test_fifo_decodes_every_frame_with_subscript_labels(self):
+        decoder = Qmi8660Decoder()
+        decoder.set_scale_overrides(16, 4096)
+        decoder.set_fifo_layout_override("Gyro XYZ + Accel XYZ")
+        frame = [
+            0x00, 0x40, 0x00, 0xC0, 0x00, 0x20,
+            0x00, 0x10, 0x00, 0xF0, 0x00, 0x08,
+        ]
+        decoded = decoder.decode_spi([0xD7] + [0] * 24, [0] + frame + frame)
+        self.assertEqual(decoded.derived[0], "24 B, F=2, 12 B/F")
+        self.assertIn("A₁=[2.0000, -2.0000, 1.0000] g", decoded.derived[1])
+        self.assertIn("G₁=[2048.0000, -2048.0000, 1024.0000] dps", decoded.derived[1])
+        self.assertIn("A₂=[2.0000, -2.0000, 1.0000] g", decoded.derived[1])
+        self.assertIn("G₂=[2048.0000, -2048.0000, 1024.0000] dps", decoded.derived[1])
 
     def test_i2c_repeated_start_read(self):
         decoder = Qmi8660Decoder()

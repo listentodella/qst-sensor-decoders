@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-from qst_common import convert_acceleration, convert_angular_velocity
+from qst_common import convert_acceleration, convert_angular_velocity, subscript_number
 
 
 UI_PAGE = 0x0000
@@ -250,6 +250,10 @@ class Qmi8660Decoder:
     def _register_definition(self, page: int, address: int) -> Dict[str, Any]:
         return REGISTERS.get(page, {}).get(address, {})
 
+    @staticmethod
+    def is_sensor_data_register(page: int, register: Optional[int]) -> bool:
+        return register is not None and Qmi8660Decoder._is_data_block(page, register)
+
     def _decode_register_fields(
         self, page: int, register: int, values: Sequence[int]
     ) -> List[str]:
@@ -363,44 +367,46 @@ class Qmi8660Decoder:
         return f"{name}={raw} ({value:.4f} {output_unit})"
 
     def _decode_fifo(self, values: Sequence[int]) -> List[str]:
-        fields, layout_source = self._fifo_fields(values)
+        fields, _layout_source = self._fifo_fields(values)
         if not fields:
-            return [
-                f"FIFO raw payload ({len(values)} bytes); select FIFO layout or capture FIFO_CTL0/1"
-            ]
+            return [f"{len(values)} B, F=?"] if values else ["0 B, F=0"]
         frame_size = len(fields) * 2
-        if frame_size == 0 or len(values) < frame_size:
-            return [f"FIFO partial frame ({len(values)}/{frame_size} bytes)"]
         frame_count = len(values) // frame_size
-        first_raw: Dict[str, int] = {}
-        for index, name in enumerate(fields):
-            first_raw[name] = _signed_i16_le(values, index * 2)
-        decoded = [
-            f"{frame_count} frame(s), {frame_size} B/frame, layout {layout_source}"
-        ]
-        gyro = [first_raw[name] for name in ("gx", "gy", "gz") if name in first_raw]
-        accel = [first_raw[name] for name in ("ax", "ay", "az") if name in first_raw]
+        trailing = len(values) % frame_size
+        summary = f"{len(values)} B, F={frame_count}, {frame_size} B/F"
+        if trailing:
+            summary += f", tail={trailing} B"
+        if not frame_count:
+            return [summary]
         gyro_fs = self.gyro_fs_override or self.gyro_fs_seen
         accel_fs = self.accel_fs_override or self.accel_fs_seen
-        sample_prefix = "First " if frame_count > 1 else ""
-        if gyro:
-            decoded.append(
-                self._physical_vector(
-                    f"{sample_prefix}G", gyro, gyro_fs, "dps", "gyroscope"
+        samples: List[str] = []
+        for frame_index in range(frame_count):
+            frame_offset = frame_index * frame_size
+            raw = {
+                name: _signed_i16_le(values, frame_offset + index * 2)
+                for index, name in enumerate(fields)
+            }
+            index = subscript_number(frame_index + 1)
+            frame_values: List[str] = []
+            accel = [raw[name] for name in ("ax", "ay", "az") if name in raw]
+            gyro = [raw[name] for name in ("gx", "gy", "gz") if name in raw]
+            if accel:
+                frame_values.append(
+                    self._physical_vector(
+                        f"A{index}", accel, accel_fs, "g", "accelerometer"
+                    )
                 )
-            )
-        if accel:
-            decoded.append(
-                self._physical_vector(
-                    f"{sample_prefix}A", accel, accel_fs, "g", "accelerometer"
+            if gyro:
+                frame_values.append(
+                    self._physical_vector(
+                        f"G{index}", gyro, gyro_fs, "dps", "gyroscope"
+                    )
                 )
-            )
-        if "temp" in first_raw:
-            decoded.append(f"{sample_prefix}T={first_raw['temp'] / 256.0:.3f} C")
-        trailing = len(values) % frame_size
-        if trailing:
-            decoded.append(f"{trailing} trailing byte(s)")
-        return decoded
+            if "temp" in raw:
+                frame_values.append(f"T{index}={raw['temp'] / 256.0:.3f} C")
+            samples.append(", ".join(frame_values))
+        return [summary, ";".join(samples)]
 
     def _fifo_fields(self, values: Sequence[int]) -> Tuple[List[str], str]:
         if self.fifo_layout_override is not None:
@@ -409,16 +415,6 @@ class Qmi8660Decoder:
         if self.fifo_axes or self.fifo_temperature:
             return self.fifo_axes + (["temp"] if self.fifo_temperature else []), "observed"
 
-        # The two common QMI8660 FIFO frames are unambiguous for normal short
-        # watermark reads. Large payloads divisible by both sizes stay raw so
-        # that the decoder never invents an axis layout.
-        byte_count = len(values)
-        fits_14 = byte_count >= 14 and byte_count % 14 == 0
-        fits_12 = byte_count >= 12 and byte_count % 12 == 0
-        if fits_14 and not fits_12:
-            return ["gx", "gy", "gz", "ax", "ay", "az", "temp"], "inferred 6-axis+temp"
-        if fits_12 and not fits_14:
-            return ["gx", "gy", "gz", "ax", "ay", "az"], "inferred 6-axis"
         return [], "unknown"
 
     def _physical_vector(
@@ -430,8 +426,7 @@ class Qmi8660Decoder:
         setting_name: str,
     ) -> str:
         if full_scale is None:
-            raw = ", ".join(str(value) for value in raw_values)
-            return f"{label}_raw=[{raw}] (set {setting_name} full scale)"
+            return f"{label}: set {setting_name} full scale"
         converted = [
             self._convert_physical(value * full_scale / 32768.0, unit)
             for value in raw_values
